@@ -2,11 +2,12 @@ use std::ops::Index;
 use std::ops::Range;
 use fixed;
 mod aux;
+mod matrix;
 pub fn Bmain() {
     println!("Hello, world!");
 }
 
-pub enum colourStyle{
+pub enum colour_style{
     Colour([u8;3])
 }
 
@@ -19,7 +20,7 @@ pub struct Thing<const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECO
     matrix_aux_restore: aux::IOState<AUXLENGTH>,
     matrix_aux_dampen: aux::IOState<AUXLENGTH>,
     matrix_bias_column: aux::State<AUXLENGTH>,
-    shape_config: [(Range<usize>,colourStyle);SHAPECOUNT],
+    shape_config: [(Range<usize>,colour_style);SHAPECOUNT],
     // forces?
 }
 
@@ -48,7 +49,29 @@ impl <const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usize>
 
         let matrix_state_restore = self.matrix_aux_restore.backward_aux(&self.aux_config);
         let matrix_state_dampen  = self.matrix_aux_dampen .backward_aux(&self.aux_config);
-
-        
+        // Now collect everything into a matrix
+        const DUBSTAT: usize = STATELENGTH * 2;//shorthand for double state
+        let top = matrix::Matrix::<DUBSTAT, DUBSTAT>::zero().join_right(matrix::Matrix::<DUBSTAT, DUBSTAT>::identity()).join_right(matrix::Matrix::<DUBSTAT, 1>::zero());
+    }
+}
+impl <const SIZE: usize> aux::IOState<SIZE> {
+    pub fn toMatrix<const OUTSIZE: usize> (self) -> matrix::Matrix<OUTSIZE, OUTSIZE> {
+        const {
+            assert!(OUTSIZE == SIZE << 1, "Converting to a matrix doubles dimensions");
+        }
+        matrix::Matrix{contents: 
+            core::array::from_fn(|i|
+                core::array::from_fn(|j| {
+                    let spot = self.matrix[i>>1][j>>1];
+                    match (i & 1 == 1, j & 1 == 1){
+                        (false,false) => spot.xx,
+                        (false,true ) => spot.yx,
+                        (true, false) => spot.xy,
+                        (true, true ) => spot.yy,
+                    }
+                }
+                )
+            )
+        }
     }
 }

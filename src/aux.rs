@@ -1,7 +1,6 @@
 use std::ops::Index;
 use fixed::{FixedI8, traits::Fixed, types::extra::U4};
 pub struct SafeIndex<const Max: usize>(pub usize);
-
 // impl<T, const N: usize, const max: usize> Index<SafeIndex<max>> for [T; N]{
 //     type Output = T;
 //  fn index (&self, index: SafeIndex<max>) -> &Self::Output {
@@ -19,10 +18,9 @@ pub enum Weight {Zero, Some {parr: Lin, perp: Lin}}
 pub struct State<const LENGTH: usize> {pub points: [Point; LENGTH]}
 
 #[derive(Clone, Copy)]
-pub struct IOPoint {xx: f64, xy: f64, yx: f64, yy: f64}
+pub struct IOPoint {pub xx: f64, pub xy: f64, pub yx: f64, pub yy: f64}
 #[derive(Clone, Copy)]
 pub struct IOState<const LENGTH: usize> {pub matrix: [[IOPoint; LENGTH]; LENGTH]}
-pub struct Matrix<const DIMENSION: usize> {pub contents: [[f64; DIMENSION]; DIMENSION]}
 
 #[derive(Copy, Clone)]
 pub struct AuxRow<const INLENGTH: usize> {pub weights: [Weight; INLENGTH]}
