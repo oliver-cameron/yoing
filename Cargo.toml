@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+factorial = "0.4.0"
 fixed = "1.31.0"
 vello = "0.9.0"
 wgpu = "30.0.0"
