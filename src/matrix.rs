@@ -107,17 +107,22 @@ impl<const DIMENSION: usize> Matrix<DIMENSION, DIMENSION> {
         let power_cache: [Self; POWER] = [Self::zero(); POWER];
         power_cache[0] = Self::identity();
         power_cache[1] = scaled_matrix;
-        for index in 2. = POWER {
+        for index in 2..POWER {
             power_cache[index] = power_cache[index - 1] * scaled_matrix;
         }
         let numerator = Self::zero();
         let denominator = Self::zero();
-        for index in 0. = POWER {
+        for index in 0..POWER {
             numerator += power_cache[index] * coeff_cache[index];
             match index & 1 == 1 {
-                true => denominator -=
+                true => denominator -= power_cache[index] * coeff_cache[index],
+                false => denominator += power_cache[index] * coeff_cache[index],
             }
         }
+        // Solve for the result
+        let lu = denominator.lu_decompose();
+        let mut y = Self::zero();
+
     }
 }
 
@@ -156,6 +161,65 @@ impl<const HEIGHT: usize, const WIDTH: usize> ops::Add<Matrix<HEIGHT, WIDTH>>
                 core::array::from_fn(|j| self.contents[i][j] + rhs.contents[i][j])
             }),
         }
+    }
+}
+
+impl<const HEIGHT: usize, const WIDTH: usize> ops::AddAssign<Matrix<HEIGHT, WIDTH>>
+    for Matrix<HEIGHT, WIDTH>
+{
+    fn add_assign(&mut self, rhs: Matrix<HEIGHT, WIDTH>) {
+        *self = Matrix {
+            contents: core::array::from_fn(|i| {
+                core::array::from_fn(|j| self.contents[i][j] + rhs.contents[i][j])
+            }),
+        };
+    }
+}
+
+
+impl<const HEIGHT: usize, const WIDTH: usize> ops::SubAssign<Matrix<HEIGHT, WIDTH>>
+    for Matrix<HEIGHT, WIDTH>
+{
+    fn sub_assign(&mut self, rhs: Matrix<HEIGHT, WIDTH>) {
+        *self = Matrix {
+            contents: core::array::from_fn(|i| {
+                core::array::from_fn(|j| self.contents[i][j] - rhs.contents[i][j])
+            }),
+        };
+    }
+}
+
+impl<const HEIGHT: usize, const WIDTH: usize> ops::Sub<Matrix<HEIGHT, WIDTH>>
+    for Matrix<HEIGHT, WIDTH>
+{
+    type Output = Matrix<HEIGHT, WIDTH>;
+    fn sub(self, rhs: Matrix<HEIGHT, WIDTH>) -> Self::Output {
+        Matrix {
+            contents: core::array::from_fn(|i| {
+                core::array::from_fn(|j| self.contents[i][j] - rhs.contents[i][j])
+            }),
+        }
+    }
+}
+
+impl<const HEIGHT: usize, const WIDTH: usize> ops::Mul<f64> for Matrix<HEIGHT, WIDTH> {
+    type Output = Matrix<HEIGHT, WIDTH>;
+    fn mul(self, rhs: f64) -> Self::Output {
+        Matrix {
+            contents: core::array::from_fn(|i| {
+                core::array::from_fn(|j| self.contents[i][j] * rhs)
+            }),
+        }
+    }
+}
+
+impl<const HEIGHT: usize, const WIDTH: usize> ops::MulAssign<f64> for Matrix<HEIGHT, WIDTH> {
+    fn mul_assign(&mut self, rhs: f64) {
+        *self = Matrix {
+            contents: core::array::from_fn(|i| {
+                core::array::from_fn(|j| self.contents[i][j] * rhs)
+            }),
+        };
     }
 }
 
