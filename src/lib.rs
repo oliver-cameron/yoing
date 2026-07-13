@@ -2,6 +2,8 @@ use fixed;
 use std::ops::Index;
 use std::ops::Range;
 mod aux;
+mod dim_math;
+mod force;
 mod matrix;
 pub fn Bmain() {
     println!("Hello, world!");
@@ -11,7 +13,7 @@ pub enum colour_style {
     Colour([u8; 3]),
 }
 
-pub struct Thing<const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usize> {
+pub struct Thing<'a, const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usize> {
     state_pos: aux::State<STATELENGTH>,
     state_vel: aux::State<STATELENGTH>,
     aux_config: aux::AuxState<STATELENGTH, AUXLENGTH>,
@@ -21,11 +23,13 @@ pub struct Thing<const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECO
     matrix_aux_dampen: aux::IOState<AUXLENGTH>,
     matrix_bias_column: aux::State<AUXLENGTH>,
     shape_config: [(Range<usize>, colour_style); SHAPECOUNT],
+    force_config: &'a Vec<Box<dyn force::Force<AUXLENGTH>>>,
     // forces?
+    // yes forces
 }
 
-impl<const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usize>
-    Thing<STATELENGTH, AUXLENGTH, SHAPECOUNT>
+impl<'a, const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usize>
+    Thing<'a, STATELENGTH, AUXLENGTH, SHAPECOUNT>
 {
     pub fn update_aux(mut self) {
         self.aux_pos = self.state_pos.forward_aux(&self.aux_config);
