@@ -98,20 +98,24 @@ impl<const DIMENSION: usize> Matrix<DIMENSION, DIMENSION> {
         // Scale
         // // Find largest value
         let infin_norm = self.infinity_norm();
-        let coeff_cache: [f64; POWER] = core::array::from_fn(|i| pade_coeff_cache(POWER, i));
+        let scalar: usize = match infin_norm {
+            norm if norm > 1.0 => infin_norm.log2().ceil() as usize,
+            _ => 1,
+        };
+        let coeff_cache: [f64; POWER] = pade_coeff_cache::<POWER>();
         let scaled_matrix: Self = Self {
-            contents: self.contents.map(|i| i.map(|j| j / infin_norm)),
+            contents: self.contents.map(|i| i.map(|j| j / (1 << scalar) as f64)),
         };
 
         // Construct matrix power cache
-        let power_cache: [Self; POWER] = [Self::zero(); POWER];
+        let mut power_cache: [Self; POWER] = [Self::zero(); POWER];
         power_cache[0] = Self::identity();
         power_cache[1] = scaled_matrix;
         for index in 2..POWER {
             power_cache[index] = power_cache[index - 1] * scaled_matrix;
         }
-        let numerator = Self::zero();
-        let denominator = Self::zero();
+        let mut numerator = Self::zero();
+        let mut denominator = Self::zero();
         for index in 0..POWER {
             numerator += power_cache[index] * coeff_cache[index];
             match index & 1 == 1 {
@@ -121,15 +125,43 @@ impl<const DIMENSION: usize> Matrix<DIMENSION, DIMENSION> {
         }
         // Solve for the result
         let lu = denominator.lu_decompose();
-        let mut y = Self::zero();
-
+        let mut x: Self = Self::zero();
+        for column in 0..DIMENSION {
+            let mut y = [0.0; DIMENSION];
+            for i in 0..DIMENSION {
+                // here we'll put the pivoting but don't worry for now
+                let mut sum = 0.0;
+                for j in 0..i {
+                    sum += lu.l.contents[i][j] * y[j];
+                }
+                // change here i to some permuted_row
+                y[i] = numerator.contents[i][column] - sum;
+            }
+            for i in (0..DIMENSION).rev() {
+                let mut sum = 0.0;
+                for j in (i + 1)..DIMENSION {
+                    sum += lu.u.contents[i][j] * x.contents[j][column];
+                }
+                x.contents[i][column] = (y[i] - sum) / lu.u.contents[i][i]
+            }
+        }
+        for _ in 0..scalar {
+            x = x * x;
+        }
+        x
     }
 }
 
-fn pade_coeff_cache(m: usize, k: usize) -> f64 {
-    let num = (((2 * m) - k).factorial() * m.factorial()) as f64;
-    let dem = ((2 * m).factorial() * k.factorial() * (m - k).factorial()) as f64;
-    num / dem
+fn pade_coeff_cache<const M: usize>() -> [f64; M] {
+    let mut coeffs = [0.0; M];
+    coeffs[0] = 1.0;
+    let m_f = (M - 1) as f64;
+    for k in 1..M {
+        let k_f = k as f64;
+        let factor = (m_f - k_f + 1.0) / (k_f * (2.0 * m_f - k_f + 1.0));
+        coeffs[k] = coeffs[k - 1] * factor;
+    }
+    coeffs
 }
 
 impl<const LHSHEIGHT: usize, const RHSWIDTH: usize, const INTERFACELENGTH: usize>
@@ -176,7 +208,6 @@ impl<const HEIGHT: usize, const WIDTH: usize> ops::AddAssign<Matrix<HEIGHT, WIDT
     }
 }
 
-
 impl<const HEIGHT: usize, const WIDTH: usize> ops::SubAssign<Matrix<HEIGHT, WIDTH>>
     for Matrix<HEIGHT, WIDTH>
 {
@@ -206,9 +237,7 @@ impl<const HEIGHT: usize, const WIDTH: usize> ops::Mul<f64> for Matrix<HEIGHT, W
     type Output = Matrix<HEIGHT, WIDTH>;
     fn mul(self, rhs: f64) -> Self::Output {
         Matrix {
-            contents: core::array::from_fn(|i| {
-                core::array::from_fn(|j| self.contents[i][j] * rhs)
-            }),
+            contents: core::array::from_fn(|i| core::array::from_fn(|j| self.contents[i][j] * rhs)),
         }
     }
 }
@@ -216,9 +245,7 @@ impl<const HEIGHT: usize, const WIDTH: usize> ops::Mul<f64> for Matrix<HEIGHT, W
 impl<const HEIGHT: usize, const WIDTH: usize> ops::MulAssign<f64> for Matrix<HEIGHT, WIDTH> {
     fn mul_assign(&mut self, rhs: f64) {
         *self = Matrix {
-            contents: core::array::from_fn(|i| {
-                core::array::from_fn(|j| self.contents[i][j] * rhs)
-            }),
+            contents: core::array::from_fn(|i| core::array::from_fn(|j| self.contents[i][j] * rhs)),
         };
     }
 }
@@ -245,5 +272,12 @@ mod tests {
             contents: [[50.0, 60.0], [114.0, 140.0], [28.0, 40.0]],
         };
         assert_eq!(matrix_a * matrix_b, expected)
+    }
+    #[test]
+    fn test_pade_exp() {
+        let matrix = Matrix::<2, 2> {
+            contents: [[8.0, -7.0], [1.0, 0.0]],
+        };
+        println!("Matrix Exponential: {:?}", matrix.exponent_pade::<13>());
     }
 }
