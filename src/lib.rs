@@ -2,7 +2,6 @@ use fixed;
 use std::ops::Index;
 use std::ops::Range;
 mod aux;
-mod dim_math;
 mod force;
 mod matrix;
 pub fn Bmain() {

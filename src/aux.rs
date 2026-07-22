@@ -1,5 +1,7 @@
-use std::ops::Index;
 use fixed::{FixedI8, traits::Fixed, types::extra::U4};
+use std::ops::Add;
+use std::ops::Index;
+use std::ops::Mul;
 pub struct SafeIndex<const Max: usize>(pub usize);
 // impl<T, const N: usize, const max: usize> Index<SafeIndex<max>> for [T; N]{
 //     type Output = T;
@@ -12,22 +14,52 @@ pub struct SafeIndex<const Max: usize>(pub usize);
 // }
 pub type Lin = FixedI8<U4>;
 #[derive(Clone, Copy)]
-pub struct Point {pub x: f64, pub y: f64}
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Add for Point {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Point {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
 #[derive(Clone, Copy)]
-pub enum Weight {Zero, Some {parr: Lin, perp: Lin}}
-pub struct State<const LENGTH: usize> {pub points: [Point; LENGTH]}
+pub enum Weight {
+    Zero,
+    Some { parr: Lin, perp: Lin },
+}
+pub struct State<const LENGTH: usize> {
+    pub points: [Point; LENGTH],
+}
 
 #[derive(Clone, Copy)]
-pub struct IOPoint {pub xx: f64, pub xy: f64, pub yx: f64, pub yy: f64}
+pub struct IOPoint {
+    pub xx: f64,
+    pub xy: f64,
+    pub yx: f64,
+    pub yy: f64,
+}
 #[derive(Clone, Copy)]
-pub struct IOState<const LENGTH: usize> {pub matrix: [[IOPoint; LENGTH]; LENGTH]}
+pub struct IOState<const LENGTH: usize> {
+    pub matrix: [[IOPoint; LENGTH]; LENGTH],
+}
 
 #[derive(Copy, Clone)]
-pub struct AuxRow<const INLENGTH: usize> {pub weights: [Weight; INLENGTH]}
-pub struct AuxState<const INLENGTH: usize, const OUTLENGTH: usize> {pub transform: [AuxRow<INLENGTH>; OUTLENGTH]}
+pub struct AuxRow<const INLENGTH: usize> {
+    pub weights: [Weight; INLENGTH],
+}
+pub struct AuxState<const INLENGTH: usize, const OUTLENGTH: usize> {
+    pub transform: [AuxRow<INLENGTH>; OUTLENGTH],
+}
 
-impl <const INLENGTH: usize> AuxRow<INLENGTH>{
-    pub fn new(contents: [Weight; INLENGTH]){
+impl<const INLENGTH: usize> AuxRow<INLENGTH> {
+    pub fn new(contents: [Weight; INLENGTH]) {
         // [todo]
         // make it throw compile time error if the stuff doesnt sum up
         // let sum_par = contents.clone().into_iter().fold((Lin::ZERO, Lin::ZERO),
@@ -39,25 +71,41 @@ impl <const INLENGTH: usize> AuxRow<INLENGTH>{
         //         );
         // assert_eq!(sum_par.0, 1);
         // assert_eq!(sum_par.1, Lin::ZERO);
-        Self {weights: contents};
+        Self { weights: contents };
     }
 }
 
-impl <const LENGTH: usize> State<LENGTH>{
-    pub fn forward_aux <const OUTLENGTH: usize>(&self, aux_state: &AuxState<LENGTH, OUTLENGTH>) -> State<OUTLENGTH>{
-        State{ points: aux_state.transform.map(|out| out.weights.iter().enumerate().fold(
-                Point{x:0.,y:0.,},
-                |acc, (in_index, in_point)| {
-                    match in_point{
+impl<const LENGTH: usize> State<LENGTH> {
+    pub fn forward_aux<const OUTLENGTH: usize>(
+        &self,
+        aux_state: &AuxState<LENGTH, OUTLENGTH>,
+    ) -> State<OUTLENGTH> {
+        State {
+            points: aux_state.transform.map(|out| {
+                out.weights.iter().enumerate().fold(
+                    Point { x: 0., y: 0. },
+                    |acc, (in_index, in_point)| match in_point {
                         Weight::Zero => acc,
-                        Weight::Some{parr, perp} => {
+                        Weight::Some { parr, perp } => {
                             let parr_f64 = parr.to_num::<f64>();
                             let perp_f64 = perp.to_num::<f64>();
-                            Point{x: acc.x + self.points[in_index].x * parr_f64 - self.points[in_index].y * perp_f64, y: acc.y + self.points[in_index].y * parr_f64 + self.points[in_index].x * perp_f64}}
-                    }
-                }))}
+                            Point {
+                                x: acc.x + self.points[in_index].x * parr_f64
+                                    - self.points[in_index].y * perp_f64,
+                                y: acc.y
+                                    + self.points[in_index].y * parr_f64
+                                    + self.points[in_index].x * perp_f64,
+                            }
+                        }
+                    },
+                )
+            }),
+        }
     }
-    pub fn backward_aux<const INLENGTH: usize>(&self, aux_state: &AuxState<INLENGTH, LENGTH>) -> State<INLENGTH> {
+    pub fn backward_aux<const INLENGTH: usize>(
+        &self,
+        aux_state: &AuxState<INLENGTH, LENGTH>,
+    ) -> State<INLENGTH> {
         let mut out_points = [Point { x: 0.0, y: 0.0 }; INLENGTH];
         for (out_idx, out_row) in aux_state.transform.iter().enumerate() {
             let current_p = self.points[out_idx];
@@ -78,23 +126,44 @@ impl <const LENGTH: usize> State<LENGTH>{
     }
 }
 
-impl <const LENGTH: usize> IOState<LENGTH> {
-    pub fn multiply_column (&self, input_state: &State<LENGTH>) -> State<LENGTH>{
-        State{ points: self.matrix.map(|out| out.iter().enumerate().fold(
-                Point{x:0.,y:0.,},
-                |acc, (in_index, in_point)| {
-                    Point{x: acc.x + input_state.points[in_index].x * in_point.xx + input_state.points[in_index].y * in_point.yx,
-                          y: acc.y + input_state.points[in_index].x * in_point.xy + input_state.points[in_index].y * in_point.yy}
-                }))}
+impl<const LENGTH: usize> IOState<LENGTH> {
+    pub fn multiply_column(&self, input_state: &State<LENGTH>) -> State<LENGTH> {
+        State {
+            points: self.matrix.map(|out| {
+                out.iter()
+                    .enumerate()
+                    .fold(Point { x: 0., y: 0. }, |acc, (in_index, in_point)| Point {
+                        x: acc.x
+                            + input_state.points[in_index].x * in_point.xx
+                            + input_state.points[in_index].y * in_point.yx,
+                        y: acc.y
+                            + input_state.points[in_index].x * in_point.xy
+                            + input_state.points[in_index].y * in_point.yy,
+                    })
+            }),
+        }
     }
-        pub fn backward_aux<const INLENGTH: usize>(&self, aux_state: &AuxState<INLENGTH, LENGTH>) -> IOState<INLENGTH> {
+    pub fn backward_aux<const INLENGTH: usize>(
+        &self,
+        aux_state: &AuxState<INLENGTH, LENGTH>,
+    ) -> IOState<INLENGTH> {
         // 1. Right multiplication first: Middle = M * A
         // Size: [LENGTH x LENGTH] * [LENGTH x INLENGTH] -> [LENGTH x INLENGTH]
-        let mut middle_matrix = [[IOPoint { xx: 0.0, xy: 0.0, yx: 0.0, yy: 0.0 }; INLENGTH]; LENGTH];
-        
+        let mut middle_matrix = [[IOPoint {
+            xx: 0.0,
+            xy: 0.0,
+            yx: 0.0,
+            yy: 0.0,
+        }; INLENGTH]; LENGTH];
+
         for r in 0..LENGTH {
             for c in 0..INLENGTH {
-                let mut sum = IOPoint { xx: 0.0, xy: 0.0, yx: 0.0, yy: 0.0 };
+                let mut sum = IOPoint {
+                    xx: 0.0,
+                    xy: 0.0,
+                    yx: 0.0,
+                    yy: 0.0,
+                };
                 for k in 0..LENGTH {
                     let m_point = self.matrix[r][k];
                     match &aux_state.transform[k].weights[c] {
@@ -102,7 +171,7 @@ impl <const LENGTH: usize> IOState<LENGTH> {
                         Weight::Some { parr, perp } => {
                             let parr_f64 = parr.to_num::<f64>();
                             let perp_f64 = perp.to_num::<f64>();
-                            
+
                             // M * A (Standard block multiplication)
                             sum.xx += m_point.xx * parr_f64 - m_point.xy * perp_f64;
                             sum.xy += m_point.xx * perp_f64 + m_point.xy * parr_f64;
@@ -117,11 +186,21 @@ impl <const LENGTH: usize> IOState<LENGTH> {
 
         // 2. Left multiplication by Transpose: Out = A^T * Middle
         // Size: [INLENGTH x LENGTH] * [LENGTH x INLENGTH] -> [INLENGTH x INLENGTH]
-        let mut out_matrix = [[IOPoint { xx: 0.0, xy: 0.0, yx: 0.0, yy: 0.0 }; INLENGTH]; INLENGTH];
-        
+        let mut out_matrix = [[IOPoint {
+            xx: 0.0,
+            xy: 0.0,
+            yx: 0.0,
+            yy: 0.0,
+        }; INLENGTH]; INLENGTH];
+
         for r in 0..INLENGTH {
             for c in 0..INLENGTH {
-                let mut sum = IOPoint { xx: 0.0, xy: 0.0, yx: 0.0, yy: 0.0 };
+                let mut sum = IOPoint {
+                    xx: 0.0,
+                    xy: 0.0,
+                    yx: 0.0,
+                    yy: 0.0,
+                };
                 for k in 0..LENGTH {
                     // Notice the outer transpose: reading row 'k', col 'r' from aux matrix
                     match &aux_state.transform[k].weights[r] {
@@ -130,7 +209,7 @@ impl <const LENGTH: usize> IOState<LENGTH> {
                             let parr_f64 = parr.to_num::<f64>();
                             let perp_f64 = perp.to_num::<f64>();
                             let mid = middle_matrix[k][c];
-                            
+
                             // A^T * Middle (Inner 2x2 block matrix is ALSO transposed here)
                             // [ parr  perp] * [xx xy]
                             // [-perp  parr]   [yx yy]
@@ -147,4 +226,79 @@ impl <const LENGTH: usize> IOState<LENGTH> {
 
         IOState { matrix: out_matrix }
     }
+}
+
+pub struct Kinematics<const STATELENGTH: usize> {
+    pos: State<STATELENGTH>,
+    vel: State<STATELENGTH>,
+    c: f64,
+}
+
+// Rust won't lemme join matrcies so I do this instead.
+pub struct IOKinematics<const STATELENGTH: usize> {
+    // There is no pos pos, this is Zero
+    // vel pos is 1/weights, component wise. Might? make this a State later if x weight is different
+    // from y.
+    weights: [f64; STATELENGTH],
+    // There is no c pos
+    // pos vel is restore.
+    restore: IOState<STATELENGTH>,
+    // vel vel is dampen
+    dampen: IOState<STATELENGTH>,
+    // c vel is residuals
+    residuals: State<STATELENGTH>,
+}
+
+impl<const STATELENGTH: usize> Mul<Kinematics<STATELENGTH>> for IOKinematics<STATELENGTH> {
+    type Output = Kinematics<STATELENGTH>;
+    fn mul(self, rhs: Kinematics<STATELENGTH>) -> Self::Output {
+        let pos: State<STATELENGTH> = State {
+            points: std::array::from_fn(|i| {
+                let point = rhs.vel.points[i];
+                let weight = self.weights[i];
+                Point {
+                    x: point.x / weight,
+                    y: point.y / weight,
+                }
+            }),
+        };
+        let restoreVel = self.restore.multiply_column(&rhs.pos);
+        let dampenVel = self.dampen.multiply_column(&rhs.vel);
+        let residualVel = State {
+            points: self.residuals.points.map(|x| Point {
+                x: x.x * rhs.c,
+                y: x.y * rhs.c,
+            }),
+        };
+        let vel: State<STATELENGTH> = State {
+            points: std::array::from_fn(|i| {
+                restoreVel.points[i] + dampenVel.points[i] + residualVel.points[i]
+            }),
+        };
+        Kinematics {
+            pos: pos,
+            vel: vel,
+            c: 0.0,
+        }
+    }
+}
+
+impl<const STATELENGTH: usize> IOKinematics<STATELENGTH> {
+    pub fn krylov<const Degree: usize>(
+        self,
+        _state: &Kinematics<STATELENGTH>,
+    ) -> Kinematics<STATELENGTH> {
+        let mut Subspace: [Kinematics<STATELENGTH>; Degree];
+    }
+}
+pub fn krylov<const STATELENGTH: usize>(
+    restore: IOState<STATELENGTH>,
+    dampen: IOState<STATELENGTH>,
+    residuals: State<STATELENGTH>,
+    weights: [f64; STATELENGTH],
+) {
+    // Matrix will be assembled like this:
+    // 0, I (divided by weights), 0
+    // restore, dampen, residuals
+    // 0, 0, 0
 }
