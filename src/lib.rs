@@ -1,6 +1,8 @@
 use fixed;
 use std::ops::Index;
 use std::ops::Range;
+
+use crate::aux::Kinematics;
 mod aux;
 mod force;
 mod matrix;
@@ -25,6 +27,7 @@ pub struct Thing<'a, const STATELENGTH: usize, const AUXLENGTH: usize, const SHA
     force_config: &'a Vec<Box<dyn force::Force<AUXLENGTH>>>,
     // forces?
     // yes forces
+    weights: [f64; STATELENGTH],
 }
 
 impl<'a, const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usize>
@@ -37,33 +40,19 @@ impl<'a, const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usi
     pub fn pre_force_calc(self) {
         self.update_aux();
     }
-    pub fn post_force_calc(self) {
-        todo!();
-        // Compute residuals of restore and dampen blocks. These are influence matrcies, and should
-        // really just have the difference of pos or vel as input. This probably makes no sense so
-        // come talk to me.
-        // let restore_residual: aux::State<AUXLENGTH> =
-        //     self.matrix_aux_restore.multiply_column(&self.aux_pos);
-        // let dampen_residual: aux::State<AUXLENGTH> =
-        //     self.matrix_aux_dampen.multiply_column(&self.aux_vel);
-        // let bias_column_state: aux::State<STATELENGTH> = aux::State {
-        //     points: std::array::from_fn(|i| {
-        //         let orig = self.matrix_bias_column.points[i];
-        //         aux::Point {
-        //             x: orig.x - restore_residual.points[i].x - dampen_residual.points[i].x,
-        //             y: orig.y - restore_residual.points[i].y - dampen_residual.points[i].x,
-        //         }
-        //     }),
-        // }
-        // .backward_aux(&self.aux_config);
-        //
-        // let matrix_state_restore = self.matrix_aux_restore.backward_aux(&self.aux_config);
-        // let matrix_state_dampen = self.matrix_aux_dampen.backward_aux(&self.aux_config);
-        // // Now collect everything into a matrix
-        // const DUBSTAT: usize = STATELENGTH * 2; //shorthand for double state
-        // let top = matrix::Matrix::<DUBSTAT, DUBSTAT>::zero()
-        //     .join_right(matrix::Matrix::<DUBSTAT, DUBSTAT>::identity())
-        //     .join_right(matrix::Matrix::<DUBSTAT, 1>::zero());
+    pub fn post_force_calc(self, dt: f64) {
+        let cur_state = aux::Kinematics {
+            pos: self.state_pos,
+            vel: self.state_vel,
+            c: 1.0,
+        };
+        let force_matrix = aux::IOKinematics::<STATELENGTH> {
+            dampen: self.matrix_aux_dampen.backward_aux(&self.aux_config),
+            restore: self.matrix_aux_restore.backward_aux(&self.aux_config),
+            residuals: self.matrix_bias_column.backward_aux(&self.aux_config),
+            weights: self.weights,
+        }
+        .residual(&cur_state);
     }
 }
 impl<const SIZE: usize> aux::IOState<SIZE> {
