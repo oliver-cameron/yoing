@@ -2,10 +2,10 @@ use fixed;
 use std::ops::Index;
 use std::ops::Range;
 
-use crate::aux::Kinematics;
-mod aux;
-mod force;
-mod matrix;
+pub mod aux;
+pub mod force;
+pub mod kinematics;
+pub mod matrix;
 pub fn Bmain() {
     println!("Hello, world!");
 }
@@ -37,22 +37,55 @@ impl<'a, const STATELENGTH: usize, const AUXLENGTH: usize, const SHAPECOUNT: usi
         self.aux_pos = self.state_pos.forward_aux(&self.aux_config);
         self.aux_vel = self.state_vel.forward_aux(&self.aux_config);
     }
-    pub fn pre_force_calc(self) {
+    pub fn pre_force_calc(mut self) {
+        self.matrix_aux_restore = aux::IOState::<AUXLENGTH>::zero();
+        self.matrix_aux_dampen = aux::IOState::<AUXLENGTH>::zero();
+        self.matrix_bias_column = aux::State::<AUXLENGTH>::zero();
         self.update_aux();
     }
-    pub fn post_force_calc(self, dt: f64) {
-        let cur_state = aux::Kinematics {
+    pub fn post_force_calc(mut self, dt: f64) {
+        let cur_state = kinematics::Kinematics {
             pos: self.state_pos,
             vel: self.state_vel,
             c: 1.0,
         };
-        let force_matrix = aux::IOKinematics::<STATELENGTH> {
+        let force_matrix = kinematics::IOKinematics::<STATELENGTH> {
             dampen: self.matrix_aux_dampen.backward_aux(&self.aux_config),
             restore: self.matrix_aux_restore.backward_aux(&self.aux_config),
             residuals: self.matrix_bias_column.backward_aux(&self.aux_config),
             weights: self.weights,
         }
-        .residual(&cur_state);
+        .residual(&cur_state)
+            * dt;
+        let next_frame = force_matrix.krylov::<7>(&cur_state);
+        self.state_pos = next_frame.pos;
+        self.state_vel = next_frame.vel;
+    }
+    pub fn force_calc(mut self) {
+        let cur_stat = kinematics::Kinematics {
+            pos: self.aux_pos,
+            vel: self.aux_vel,
+            c: 1.0,
+        };
+        for i in self.force_config {
+            let output = i.apply(&cur_stat);
+            match output {
+                force::ForceOutput::Simple { residuals } => self.matrix_bias_column += residuals,
+                force::ForceOutput::Stable { restore, residuals } => {
+                    self.matrix_bias_column += residuals;
+                    self.matrix_aux_restore += restore;
+                }
+                force::ForceOutput::Damped {
+                    damping,
+                    restore,
+                    residuals,
+                } => {
+                    self.matrix_bias_column += residuals;
+                    self.matrix_aux_restore += restore;
+                    self.matrix_aux_dampen += damping;
+                }
+            }
+        }
     }
 }
 impl<const SIZE: usize> aux::IOState<SIZE> {

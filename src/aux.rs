@@ -1,9 +1,5 @@
-use crate::matrix;
 use fixed::{FixedI8, traits::Fixed, types::extra::U4};
-use std::ops::Add;
-use std::ops::Index;
-use std::ops::Mul;
-use std::ops::Sub;
+use std::ops::*;
 pub struct SafeIndex<const Max: usize>(pub usize);
 // impl<T, const N: usize, const max: usize> Index<SafeIndex<max>> for [T; N]{
 //     type Output = T;
@@ -57,6 +53,11 @@ impl Mul<f64> for Point {
         }
     }
 }
+impl Point {
+    pub fn len(self) -> f64 {
+        return f64::sqrt(self.x * self.x + self.y * self.y);
+    }
+}
 #[derive(Clone, Copy)]
 pub enum Weight {
     Zero,
@@ -84,6 +85,20 @@ impl<const LENGTH: usize> Sub for State<LENGTH> {
         }
     }
 }
+
+impl<const LENGTH: usize> Mul<f64> for State<LENGTH> {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self {
+            points: std::array::from_fn(|x| self.points[x] * rhs),
+        }
+    }
+}
+impl<const LENGTH: usize> AddAssign for State<LENGTH> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
 #[derive(Clone, Copy)]
 pub struct IOPoint {
     pub xx: f64,
@@ -91,9 +106,73 @@ pub struct IOPoint {
     pub yx: f64,
     pub yy: f64,
 }
+
+impl Mul<f64> for IOPoint {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self {
+            xx: self.xx * rhs,
+            yx: self.yx * rhs,
+            xy: self.xy * rhs,
+            yy: self.yy * rhs,
+        }
+    }
+}
+
+impl IOPoint {
+    const ZERO: Self = Self {
+        xx: 0.0,
+        xy: 0.0,
+        yx: 0.0,
+        yy: 0.0,
+    };
+}
+impl Add for IOPoint {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            xx: self.xx + rhs.xx,
+            yx: self.yx + rhs.yx,
+            xy: self.xy + rhs.xy,
+            yy: self.yy + rhs.yy,
+        }
+    }
+}
 #[derive(Clone, Copy)]
 pub struct IOState<const LENGTH: usize> {
     pub matrix: [[IOPoint; LENGTH]; LENGTH],
+}
+
+impl<const LENGTH: usize> Mul<f64> for IOState<LENGTH> {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self {
+            matrix: std::array::from_fn(|x| std::array::from_fn(|y| self.matrix[x][y] * rhs)),
+        }
+    }
+}
+impl<const LENGTH: usize> Add for IOState<LENGTH> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            matrix: std::array::from_fn(|x| {
+                std::array::from_fn(|y| self.matrix[x][y] + rhs.matrix[x][y])
+            }),
+        }
+    }
+}
+impl<const LENGTH: usize> AddAssign for IOState<LENGTH> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl<const LENGTH: usize> IOState<LENGTH> {
+    pub fn zero() -> Self {
+        Self {
+            matrix: [[IOPoint::ZERO; LENGTH]; LENGTH],
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -278,190 +357,5 @@ impl<const LENGTH: usize> IOState<LENGTH> {
         }
 
         IOState { matrix: out_matrix }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Kinematics<const LENGTH: usize> {
-    pub pos: State<LENGTH>,
-    pub vel: State<LENGTH>,
-    pub c: f64,
-}
-impl<const LENGTH: usize> Kinematics<LENGTH> {
-    pub fn zero() -> Self {
-        Self {
-            pos: State::<LENGTH>::zero(),
-            vel: State::<LENGTH>::zero(),
-            c: 0.0,
-        }
-    }
-}
-// Rust won't lemme join matrcies so I do this instead.
-pub struct IOKinematics<const LENGTH: usize> {
-    // There is no pos pos, this is Zero
-    // vel pos is 1/weights, component wise. Might? make this a State later if x weight is different
-    // from y.
-    pub weights: [f64; LENGTH],
-    // There is no c pos
-    // pos vel is restore.
-    pub restore: IOState<LENGTH>,
-    // vel vel is dampen
-    pub dampen: IOState<LENGTH>,
-    // c vel is residuals
-    pub residuals: State<LENGTH>,
-}
-
-impl<const LENGTH: usize> Mul<&Kinematics<LENGTH>> for &IOKinematics<LENGTH> {
-    type Output = Kinematics<LENGTH>;
-    fn mul(self, rhs: &Kinematics<LENGTH>) -> Self::Output {
-        let pos: State<LENGTH> = State {
-            points: std::array::from_fn(|i| {
-                let point = rhs.vel.points[i];
-                let weight = self.weights[i];
-                Point {
-                    x: point.x / weight,
-                    y: point.y / weight,
-                }
-            }),
-        };
-        let restoreVel = self.restore * rhs.pos;
-        let dampenVel = self.dampen * rhs.vel;
-        let residualVel = State {
-            points: self.residuals.points.map(|x| Point {
-                x: x.x * rhs.c,
-                y: x.y * rhs.c,
-            }),
-        };
-        let vel: State<LENGTH> = State {
-            points: std::array::from_fn(|i| {
-                restoreVel.points[i] + dampenVel.points[i] + residualVel.points[i]
-            }),
-        };
-        Kinematics {
-            pos: pos,
-            vel: vel,
-            c: 0.0,
-        }
-    }
-}
-
-impl<const LENGTH: usize> Mul<Kinematics<LENGTH>> for Kinematics<LENGTH> {
-    type Output = f64;
-    // dot product
-    fn mul(self, rhs: Kinematics<LENGTH>) -> Self::Output {
-        let mut output: f64 = 0.0;
-        // pos
-        output = self
-            .pos
-            .points
-            .iter()
-            .enumerate()
-            .fold(output, |acc, (i, point)| {
-                acc + point.x * rhs.pos.points[i].x + point.y * rhs.pos.points[i].y
-            });
-        // vel
-        output = self
-            .vel
-            .points
-            .iter()
-            .enumerate()
-            .fold(output, |acc, (i, point)| {
-                acc + point.x * rhs.vel.points[i].x + point.y * rhs.vel.points[i].y
-            });
-        // c
-        output + self.c * rhs.c
-    }
-}
-
-impl<const LENGTH: usize> Add<Kinematics<LENGTH>> for Kinematics<LENGTH> {
-    type Output = Self;
-    fn add(self, rhs: Kinematics<LENGTH>) -> Self::Output {
-        Self {
-            pos: State {
-                points: std::array::from_fn(|f| self.pos.points[f] + rhs.pos.points[f]),
-            },
-            vel: State {
-                points: std::array::from_fn(|f| self.vel.points[f] + rhs.vel.points[f]),
-            },
-            c: self.c + rhs.c,
-        }
-    }
-}
-
-impl<const LENGTH: usize> Mul<f64> for Kinematics<LENGTH> {
-    type Output = Self;
-    fn mul(self, rhs: f64) -> Self::Output {
-        Self {
-            pos: State {
-                points: std::array::from_fn(|f| self.pos.points[f] * rhs),
-            },
-            vel: State {
-                points: std::array::from_fn(|f| self.vel.points[f] * rhs),
-            },
-            c: self.c * rhs,
-        }
-    }
-}
-
-impl<const LENGTH: usize> IOKinematics<LENGTH> {
-    pub fn krylov<const DEGREE: usize>(self, _state: &Kinematics<LENGTH>) -> Kinematics<LENGTH> {
-        // Matrix will be assembled like this:
-        // 0, I (divided by weights), 0
-        // restore, dampen, residuals
-        // 0, 0, 0
-        let mut subspace = [Kinematics::<LENGTH>::zero(); DEGREE];
-        let mut q = matrix::Matrix::<DEGREE, DEGREE>::zero();
-        let orig_scale = f64::sqrt(*_state * *_state);
-        if orig_scale < 1e-12 {
-            return Kinematics::<LENGTH>::zero();
-        }
-        subspace[0] = *_state * (1.0 / orig_scale);
-        // https://phys.au.dk/~fedorov/Numeric/11/krylov.pdf
-        for k in 1..=DEGREE {
-            let mut qk = &self * &subspace[k - 1];
-            for i in 0..k {
-                let dot = subspace[i] * qk;
-                q.contents[i][k - 1] = dot;
-                qk = qk + subspace[i] * -dot;
-            }
-            let scale = f64::sqrt(qk * qk);
-            if k < DEGREE {
-                q.contents[k][k - 1] = scale;
-                if scale < 1e-12 {
-                    break;
-                }
-                subspace[k] = qk * (1.0 / scale);
-            }
-        }
-
-        const PADE_DEGREE: usize = 13;
-        let exp_q = q.exponent_pade::<PADE_DEGREE>();
-        let mut y = [0.0; DEGREE];
-        for i in 0..DEGREE {
-            y[i] = exp_q.contents[i][0] * orig_scale;
-        }
-        let mut final_state = Kinematics::<LENGTH>::zero();
-        for i in 0..DEGREE {
-            final_state = final_state + subspace[i] * y[i];
-        }
-        final_state
-    }
-    // pub fn backward_aux<const INLENGTH: usize>(
-    //     self,
-    //     _auxconfig: &AuxState<INLENGTH, LENGTH>,
-    // ) -> IOKinematics<INLENGTH> {
-    //     IOKinematics::<INLENGTH> {
-    //         restore: self.restore.backward_aux(_auxconfig),
-    //         dampen: self.dampen.backward_aux(_auxconfig),
-    //         residuals:
-    //     }
-    // }
-    pub fn residual(self, _state: &Kinematics<LENGTH>) -> Self {
-        Self {
-            dampen: self.dampen,
-            restore: self.restore,
-            weights: self.weights,
-            residuals: { self.residuals - self.dampen * _state.pos - self.restore * _state.vel },
-        }
     }
 }
